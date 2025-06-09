@@ -1,0 +1,116 @@
+---
+- name: Install MySQL, create DB, and load data via SQL file
+  hosts: ec2
+  become: yes
+  gather_facts: yes  # Enabled for better variable handling
+
+  vars:
+    mysql_root_password: "root"  # Use Ansible Vault
+    mysql_user: "dbuser"
+    mysql_user_password: "mypass"  # Use Ansible Vault
+    mysql_database: "company_db"
+    mysql_table: "employees"
+    mysql_host: "localhost"
+
+  tasks:
+    - name: Install prerequisites
+      apt:
+        name:
+          - python3
+          - python3-pip
+          - python3-dev
+          - libmysqlclient-dev
+        state: present
+        update_cache: yes
+
+    - name: Install Python MySQL packages
+      pip:
+        name:
+          - PyMySQL
+          - mysql-connector-python
+        executable: pip3
+
+    - name: Install MySQL Server
+      apt:
+        name: mysql-server
+        state: present
+
+    - name: Ensure MySQL service is running
+      service:
+        name: mysql
+        state: started
+        enabled: yes
+
+    - name: Secure MySQL installation
+      shell: |
+        mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '{{ mysql_root_password }}';"
+        mysql -u root -p'{{ mysql_root_password }}' -e "DELETE FROM mysql.user WHERE User='';"
+        mysql -u root -p'{{ mysql_root_password }}' -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');"
+        mysql -u root -p'{{ mysql_root_password }}' -e "FLUSH PRIVILEGES;"
+      no_log: true  # Hide passwords from logs
+      args:
+        executable: /bin/bash
+
+    - name: Create application database
+      community.mysql.mysql_db:
+        name: "{{ mysql_database }}"
+        state: present
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+
+    - name: Create application user with password and grant privileges
+      community.mysql.mysql_user:
+        name: "{{ mysql_user }}"
+        password: "{{ mysql_user_password }}"
+        priv: "{{ mysql_database }}.*:ALL"
+        host: "{{ mysql_host }}"
+        state: present
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+
+    - name: Create table structure
+      mysql_query:
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        login_db: "{{ mysql_database }}"
+        query: |
+          CREATE TABLE IF NOT EXISTS {{ mysql_table }} (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            position VARCHAR(100),
+            salary DECIMAL(10,2),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          );
+
+    - name: Validate SQL file exists locally
+      stat:
+        path: "template/product.sql"
+      register: sql_file
+      delegate_to: localhost
+      run_once: true
+
+    - name: Fail if SQL file doesn't exist
+      fail:
+        msg: "Seed data SQL file (templates/seed_data.sql) not found!"
+      when: not sql_file.stat.exists
+
+    - name: Upload seed data SQL file
+      copy:
+        src: "template/product.sql"
+        dest: "/tmp/seed_data.sql"
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: Import seed data
+      community.mysql.mysql_db:
+        name: "{{ mysql_database }}"
+        state: import
+        target: "/tmp/seed_data.sql"
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+
+    - name: Clean up SQL file
+      file:
+        path: "/tmp/seed_data.sql"
+        state: absent

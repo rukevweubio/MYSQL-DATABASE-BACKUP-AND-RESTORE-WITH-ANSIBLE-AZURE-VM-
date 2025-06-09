@@ -1,0 +1,99 @@
+---
+- name: Install Azure CLI and Upload File to Azure Blob
+  hosts: ec2
+  become: yes
+  gather_facts: yes
+  vars:
+    azure_storage_account: "ystorageaccount12345"
+    azure_container_name: "mycontainer"
+    azure_resource_group: "ml_rg_main-7cd0ba00b83a4d80"
+    azure_location: "eastus"
+    azure_file_to_upload: "/tmp/mydatabase_backup.sql"
+    azure_blob_name: "backup.sql"
+
+  tasks:
+    - name: Install dependencies for Azure CLI
+      shell: |
+            sudo apt-get update
+            sudo apt-get install apt-transport-https ca-certificates curl gnupg lsb-release
+        #  state: present 
+         # update_cache: yes
+ 
+    - name: Add Microsoft signing key
+      shell: |
+        sudo mkdir -p /etc/apt/keyrings
+        curl -sLS https://packages.microsoft.com/keys/microsoft.asc  | \
+          gpg --dearmor | sudo tee /etc/apt/keyrings/microsoft.gpg > /dev/null
+        sudo chmod go+r /etc/apt/keyrings/microsoft.gpg
+
+    - name: Add Azure CLI repository from template
+      template:
+        src: ./template/azurecli.j2
+        dest: /etc/apt/sources.list.d/azure-cli.sources
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Update apt cache and install azure-cli
+      apt:
+        name: azure-cli
+        state: present
+        update_cache: yes
+
+    - name: Login to Azure using Service Principal (Recommended for automation)
+      environment:
+        AZURE_CLIENT_ID: "{{ az_client_id }}"
+        AZURE_SECRET: "{{ az_client_secret }}"
+        AZURE_TENANT: "{{ az_tenant_id }}"
+      shell: az login --service-principal -u $AZURE_CLIENT_ID -p $AZURE_SECRET --tenant $AZURE_TENANT
+      no_log: yes
+
+
+
+    - name: Create Azure Storage Account (if not exists)
+      shell: |
+        az storage account create \
+          --name {{ azure_storage_account }} \
+          --resource-group {{ azure_resource_group }} \
+          --location {{ azure_location }} \
+          --sku Standard_LRS || echo "Storage account already exists"
+      register: storage_creation
+      args:
+        chdir: /root
+
+    - name: Wait for Storage Account to be ready
+      shell: sleep 30
+
+    - name: Get Storage Account Key
+      shell: |
+        az storage account keys list \
+          --account-name {{ azure_storage_account }} \
+          --resource-group {{ azure_resource_group }} \
+          --query "[0].value" -o tsv
+      register: storage_key
+      changed_when: false
+
+    - name: Create Blob Container
+      shell: |
+        az storage container create \
+          --name {{ azure_container_name }} \
+          --account-name {{ azure_storage_account }} \
+          --account-key {{ storage_key.stdout }}
+      register: container_creation
+      ignore_errors: yes
+      args:
+        chdir: /root
+
+    - name: Upload File to Azure Blob
+      shell: |
+        az storage blob upload \
+          --account-name {{ azure_storage_account }} \
+          --account-key {{ storage_key.stdout }} \
+          --container-name {{ azure_container_name }} \
+          --name {{ azure_blob_name }} \
+          --file {{ azure_file_to_upload }}
+      register: upload_status
+
+    - name: Show upload result
+      debug:
+        msg: "File uploaded successfully: {{ upload_status.stdout }}"

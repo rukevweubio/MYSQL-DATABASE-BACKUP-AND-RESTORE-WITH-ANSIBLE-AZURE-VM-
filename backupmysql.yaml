@@ -1,0 +1,62 @@
+---
+- name: Manage MySQL Database Operations
+  hosts: ec2
+  become: yes
+  vars:
+    mysql_root_password: "root"
+    mysql_user: "dbuser"
+    mysql_user_password: "mypass"
+    mysql_database: "company_db"
+    backup_dir: "/var/backups/mysql"
+    timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
+
+  tasks:
+    # 1. Create backup directory
+    - name: Ensure backup directory exists
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: create remote file
+      file:
+         path: /tmp/create_product.sql
+         state: touch
+         mode: "0777"
+
+    # 2. Deploy products table SQL
+    - name: Copy products table SQL to remote
+      copy:
+        src: /etc/ansible/template/product.sql
+        dest: /tmp/create_product.sql
+        mode: '0600'
+
+    # 3. Create products table and insert data
+ 
+    # 4. Create database backup
+    - name: Backup database with mysqldump
+      shell: |
+        mysqldump -u root -p'{{ mysql_root_password }}' {{ mysql_database }} > {{ backup_dir }}/{{ mysql_database }}_backup_{{ timestamp }}.sql
+        gzip {{ backup_dir }}/{{ mysql_database }}_backup_{{ timestamp }}.sql
+      no_log: true
+      args:
+        executable: /bin/bash
+
+    # 5. Verify backup
+    - name: Check backup file
+      stat:
+        path: "{{ backup_dir }}/{{ mysql_database }}_backup_{{ timestamp }}.sql.gz"
+      register: backup_file
+
+    - name: Show backup status
+      debug:
+        msg: "Backup created at {{ backup_dir }}/{{ mysql_database }}_backup_{{ timestamp }}.sql.gz ({{ backup_file.stat.size | filesizeformat }})"
+      when: backup_file.stat.exists
+
+    # 6. Cleanup SQL file
+    - name: Remove temporary SQL file
+      file:
+        path: /tmp/create_product.sql
+        state: absent
