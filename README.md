@@ -53,7 +53,7 @@ Before implementing the solution, the following prerequisites were ensured:
 - Size: Standard_D2s_v3 (2 vCPUs, 8 GB RAM)
 - Networking: Public IP address with SSH (port 22) and MySQL (port 3306) ports open in the Network Security Group (NSG).
 - Storage: 30 GB SSD for the OS disk.
-![CREATE AZURE VM]()
+![CREATE AZURE VM](https://github.com/rukevweubio/MYSQL-DATABASE-BACKUP-AND-RESTORE-WITH-ANSIBLE-AZURE-VM-/blob/master/Screenshot%20(1052).png)
 
 
 ## ANSIBLE INSTALLATION
@@ -168,6 +168,7 @@ Stores backups in /var/backups/mysql.
 A cron job was configured to run the backup and upload scripts daily at 2 AM:
 0 2 * * * /bin/bash /scripts/backup_mysql.sh && /usr/bin/python3 /scripts/upload_to_azure.py
 The cron job was added using crontab -e on the VM.
+![CROTABLE BACKUP](https://github.com/rukevweubio/MYSQL-DATABASE-BACKUP-AND-RESTORE-WITH-ANSIBLE-AZURE-VM-/blob/master/Screenshot%20(1051).png)
 ### Testing and Validation
 - Provisioning: Verified that Ansible playbooks successfully installed and configured MySQL, created the database, and set up tables.
 - Backups: Confirmed that mysqldump generated valid SQL dumps and that backups were compressed.
@@ -185,7 +186,7 @@ Resolution: Added a task to install python3-pymysql before running MySQL-related
 ### Azure NSG Configuration:
 - Challenge: MySQL port 3306 was initially inaccessible due to restrictive NSG rules.
 - Resolution: Updated the NSG to allow inbound traffic on port 3306 from trusted IPs.
-
+![AZURE CLOUD](https://github.com/rukevweubio/MYSQL-DATABASE-BACKUP-AND-RESTORE-WITH-ANSIBLE-AZURE-VM-/blob/master/Screenshot%20(1045).png)
 ### Cron Job Failures:
 - Challenge: The cron job failed due to incorrect script permissions and missing environment variables.
 - Resolution: Set executable permissions (chmod +x) on scripts and added environment variables to the cron script.
